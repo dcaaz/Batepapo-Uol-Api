@@ -1,9 +1,16 @@
 import express, { application } from "express";
 import cors from 'cors';
+import { MongoClient } from "mongodb";
 
 const app = express();
 app.use(cors());
 app.use(express.json()); //receber req do cliente no formato json
+const mongoClient = new MongoClient("mongodb://localhost:27017");
+let db;
+
+mongoClient.connect().then(() =>{
+    db = mongoClient.db("")
+}).catch(err => console.log(err));  
 
 app.post("/participants", (req, res) => {
 
