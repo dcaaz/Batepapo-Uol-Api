@@ -68,6 +68,13 @@ app.post("/messages", async (req, res) => {
 
     console.log("req.body", req.body)
 
+    const types = ("message" || "private_message");
+    const from = users.find(atualUser => atualUser.name === user);
+
+    if(!to || !text || !types || !from){
+        return res.sendStatus(422);
+    }
+
     if (!to || !text) {
         return res.sendStatus(422);
     }
@@ -80,14 +87,14 @@ app.post("/messages", async (req, res) => {
         time
     }
 
-    console.log("saveMessage", saveMessage);
-
     try{
         await messages.insertOne(saveMessage);
         res.sendStatus(201);
     } catch (err){
         res.sendStatus(500);
     }
+
+    console.log("save", saveMessage)
 
 });
 
