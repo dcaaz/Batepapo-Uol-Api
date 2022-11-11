@@ -1,22 +1,32 @@
 import express, { application } from "express";
 import cors from 'cors';
 import { MongoClient } from "mongodb";
+import dotenv from 'dotenv';
+import dayjs from "dayjs";
+
+//configs
+dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json()); //receber req do cliente no formato json
-const mongoClient = new MongoClient("mongodb://localhost:27017");
-let db;
 
-mongoClient.connect().then(() =>{
-    db = mongoClient.db("")
-}).catch(err => console.log(err));  
+const mongoClient = new MongoClient(process.env.MONGO_URI); //porta do mongo
+
+await mongoClient.connect().then(() => {
+    db = mongoClient.db("batePapoUOl");
+});
+
+const users = db.collection("users");
+const messages = db.collection("messages");
 
 app.post("/participants", (req, res) => {
 
     const { name } = req.body;
 
-    if(!name || name === Number){
+    const isUserExists = users.find(p => p.name === name);
+
+    if (!name || name === Number || isUserExists) {
         return res.sendStatus(422); //equivalente a res.status(422).send('OK')
     }
 
@@ -36,9 +46,9 @@ app.get("/messages", (req, res) => {
 });
 
 app.post("/status", (req, res) => {
-    const {User} = req.header
+    const { User } = req.header
 
-    if(!User){
+    if (!User) {
         return res.sendStatus(404)
     }
 
