@@ -1,4 +1,4 @@
-import express, { application } from "express";
+import express, { json } from "express";
 import cors from 'cors';
 import { MongoClient } from "mongodb";
 import dotenv from 'dotenv';
@@ -11,35 +11,84 @@ const app = express();
 app.use(cors());
 app.use(express.json()); //receber req do cliente no formato json
 
-const mongoClient = new MongoClient(process.env.MONGO_URI); //porta do mongo
+const mongoClient = new MongoClient("mongodb://localhost:27017"); //porta do mongo
 
-await mongoClient.connect().then(() => {
-    db = mongoClient.db("batePapoUOl");
-});
+await mongoClient.connect()
+const db = mongoClient.db("batePapoUOl");
 
 const users = db.collection("users");
 const messages = db.collection("messages");
 
-app.post("/participants", (req, res) => {
+const time = dayjs().format("HH:mm:ss");
+
+app.post("/participants", async (req, res) => {
 
     const { name } = req.body;
 
-    const isUserExists = users.find(p => p.name === name);
-
-    if (!name || name === Number || isUserExists) {
+    if (!name || name === Number || name === "") {
         return res.sendStatus(422); //equivalente a res.status(422).send('OK')
     }
 
-    console.log("name", name);
+    const user = {
+        name,
+        lastStatus: Date.now()
+    };
 
-    res.status(201).send("OK");
+    const data = {
+        from: name,
+        to: 'Todos',
+        text: 'entra na sala...',
+        type: 'status',
+        time
+    }
+
+    try { //tudo que é para tentar fazer
+        await messages.insertOne(data); // inserindo no mongo
+        await users.insertOne(user);
+        res.sendStatus(201);
+    } catch (err) { //se der errado
+        res.sendStatus(500);
+    }
 
 });
 
-app.get("/participants", (req, res) => {
+app.get("/participants", async (req, res) => {
+    try {
+        const listParticipants = await users.find().toArray();
+        res.send(listParticipants);
+    } catch (err) {
+        res.sendStatus(500);
+    }
 });
 
-app.post("/messages", (req, res) => {
+app.post("/messages", async (req, res) => {
+    const { to, text, type } = req.body;
+
+    const { user } = req.headers;
+
+    console.log("req.body", req.body)
+
+    if (!to || !text) {
+        return res.sendStatus(422);
+    }
+
+    const saveMessage = {
+        from: user,
+        to,
+        text,
+        type,
+        time
+    }
+
+    console.log("saveMessage", saveMessage);
+
+    try{
+        await messages.insertOne(saveMessage);
+        res.sendStatus(201);
+    } catch (err){
+        res.sendStatus(500);
+    }
+
 });
 
 app.get("/messages", (req, res) => {
