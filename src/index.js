@@ -6,12 +6,13 @@ import dayjs from "dayjs";
 import joi from "joi";
 
 const userSchema = joi.object({
-    name: joi.string().required()
+    name: joi.string().required().min(3),
 });
+
 const messagesSchema = joi.object({
-    to: joi.string().required(),
+    to: joi.string().required().min(3),
     text: joi.string().required(),
-    type: joi.string().valid("message", "private_message").required()
+    type: joi.string().required().valid("message", "private_message")
 });
 
 //configs
@@ -21,9 +22,15 @@ const app = express();
 app.use(cors());
 app.use(express.json()); //receber req do cliente no formato json
 
-const mongoClient = new MongoClient("mongodb://localhost:27017"); //porta do mongo
+const mongoClient = new MongoClient(process.env.MONGO_URI); //porta do mongo
 
-await mongoClient.connect()
+try {
+    await mongoClient.connect();
+    console.log("MongoDB conectado!");
+} catch (err) {
+    console.log("err mongoDB", err);
+}
+
 const db = mongoClient.db("batePapoUOl");
 
 const users = db.collection("users");
@@ -35,7 +42,10 @@ app.post("/participants", async (req, res) => {
 
     const body = req.body;
 
-    const validation = userSchema.validate(body, { abortEarly: false });
+    const validation = userSchema.validate(
+        body,
+        { abortEarly: false }
+    );
     //validando se o body está de acordo com os requisitos passados no userSchema
     //abortEarly false para trazer todos os erros encontrados, se fosse true parava no primeiro erro
 
@@ -91,7 +101,10 @@ app.post("/messages", async (req, res) => {
     const { user } = req.headers;
     console.log("post user", user);
 
-    const validation = messagesSchema.validate(body, { abortEarly: false });
+    const validation = messagesSchema.validate(
+        body,
+        { abortEarly: false }
+    );
 
     if (validation.error) {
         const errors = validation.error.details.map(detail => detail.message);
@@ -99,7 +112,7 @@ app.post("/messages", async (req, res) => {
     };
 
     const from = users.find({ name: user }).toArray();
-    const verifyFrom = from.length <= 0 ? true : false;
+    const verifyFrom = from.length === 0 ? true : false;
 
     if (verifyFrom) {
         return res.sendStatus(422);
@@ -125,24 +138,21 @@ app.post("/messages", async (req, res) => {
 app.get("/messages", async (req, res) => {
 
     const { user } = req.headers;
-
-    console.log("user", user)
-
-    let limit = parseInt(req.query.limit);
-    limit = (limit > 0) ? limit : 0;
+    const limit = Number(req.query.limit);
 
     try {
         const message = await messages
-            .find({ $or: [{ "from": user }, { "type": "message" }, { "to": user }, { "to": "Todos" }] })
+            .find({
+                $or: [ //$or conjunto de filtros
+                    { "from": user },
+                    { "type": "message" },
+                    { "to": { $in: [user, "Todos]"] } },
+                ]
+            })
+            .limit(limit)
             .toArray();
 
-        let returned = [];
-
-        for (let i = message.length - limit; i < message.length; i++) {
-            returned.push(message[i]);
-        };
-
-        res.send(returned);
+        res.send(message);
     } catch (err) {
         res.sendStatus(500);
     }
@@ -156,14 +166,13 @@ app.post("/status", async (req, res) => {
     const lastStatus = { $set: { lastStatus: Date.now() } };
 
     try {
-        const participator = await users.find({ name: user }).toArray();
-        console.log("participator", participator);
+        const participator = await users.findOne({ name: user });
 
         if (participator.length === 0) {
             return res.sendStatus(404);
         }
 
-        users.updateOne({ name: user }, lastStatus); //atualiza um único documento dentro da coleção com base no filtro.
+        await users.updateOne({ name: user }, lastStatus); //atualiza um único documento dentro da coleção com base no filtro.
 
         res.sendStatus(200);
 
@@ -174,26 +183,34 @@ app.post("/status", async (req, res) => {
 });
 
 setInterval(async () => {
+    console.log("Removendo");
+
+    const deleteInactive = Date.now() - 10000; //dez milisegundos
+
+
     try {
-        const arr = await users.find().toArray();
+        //$lte: menor ou igual (>=) a algum valor especifico
+        const inactives = await users
+            .find({ lastStatus: { $lte: deleteInactive } })
+            .toArray();
 
-        for (let i = 0; i < arr.length; i++) {
-            const checkTime = Date.now() - arr[i].lastStatus;
-
-            if (checkTime >= 10000) {
-                const newMessage = {
-                    from: arr[i].name,
+        if (inactives.length > 0) {
+            const inactivesMessages = inactives.map((participant) => {
+                return {
+                    from: participant.name,
                     to: "Todos",
                     text: "sai da sala...",
                     type: "status",
                     time: dayjs().format("HH:mm:ss")
                 };
-                await messages.insertOne(newMessage);
-                await users.deleteOne(arr[i]);
-            }
+            });
+
+            await messages.insertMany(inactivesMessages);
+            await users.deleteMany({ lastStatus: { $lte: deleteInactive } });
         }
+
     } catch (err) {
-        res.status(500).send('Server not running');
+        res.sendStatus(500);
     }
 
 }, 15000);
