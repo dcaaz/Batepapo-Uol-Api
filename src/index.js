@@ -66,12 +66,10 @@ app.post("/messages", async (req, res) => {
 
     const { user } = req.headers;
 
-    console.log("req.body", req.body)
-
     const types = ("message" || "private_message");
     const from = users.find(atualUser => atualUser.name === user);
 
-    if(!to || !text || !types || !from){
+    if (!to || !text || !types || !from) {
         return res.sendStatus(422);
     }
 
@@ -87,29 +85,89 @@ app.post("/messages", async (req, res) => {
         time
     }
 
-    try{
+    try {
         await messages.insertOne(saveMessage);
         res.sendStatus(201);
-    } catch (err){
+    } catch (err) {
         res.sendStatus(500);
     }
 
-    console.log("save", saveMessage)
-
 });
 
-app.get("/messages", (req, res) => {
-});
+app.get("/messages", async (req, res) => {
 
-app.post("/status", (req, res) => {
-    const { User } = req.header
+    const { user } = req.headers;
 
-    if (!User) {
-        return res.sendStatus(404)
+    let limit = parseInt(req.query.limit);
+    limit = (limit > 0) ? limit : 0;
+
+    try {
+        const message = await messages
+            .find({ $or: [{ "from": user }, { "type": "message" }, { "to": user }, { "to": "Todos" }] })
+            .toArray();
+
+        let returned = [];
+
+        for (let i = message.length - limit; i < message.length; i++) {
+            returned.push(message[i]);
+        };
+
+        res.send(returned);
+
+    } catch (err) {
+        res.sendStatus(500);
     }
 
-    res.sendStatus(200);
 });
+
+app.post("/status", async (req, res) => {
+
+    const { user } = req.headers;
+
+    console.log("user", user);
+
+    const lastStatus = { $set: { lastStatus: Date.now() } };
+
+    try {
+        const participator = await users.find({ name: user }).toArray();
+
+        if (participator.length === 0) {
+            return res.sendStatus(404);
+        }
+
+        users.updateOne({ name: user }, lastStatus);
+        res.sendStatus(200);
+
+    } catch (err) {
+        res.status(500).send('Server not running');
+    }
+
+});
+
+setInterval(async () => {
+    try {
+        const arr = await users.find().toArray();
+
+        for (let i = 0; i < arr.length; i++) {
+            const checkTime = Date.now() - arr[i].lastStatus;
+
+            if (checkTime >= 10000) {
+                const newMessage = {
+                    from: arr[i].name,
+                    to: "Todos",
+                    text: "sai da sala...",
+                    type: "status",
+                    time: dayjs().format("HH:mm:ss")
+                };
+                await messages.insertOne(newMessage);
+                await users.deleteOne(arr[i]);
+            }
+        }
+    } catch (err) {
+        res.status(500).send('Server not running');
+    }
+
+}, 15000);
 
 
 app.listen(5000, () => {
