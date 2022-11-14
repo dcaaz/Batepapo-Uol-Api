@@ -3,6 +3,16 @@ import cors from 'cors';
 import { MongoClient } from "mongodb";
 import dotenv from 'dotenv';
 import dayjs from "dayjs";
+import joi from "joi";
+
+const userSchema = joi.object({
+    name: joi.string().required()
+});
+const messagesSchema = joi.object({
+    to: joi.string().required(),
+    text: joi.string().required(),
+    type: joi.string().valid("message", "private_message").required()
+});
 
 //configs
 dotenv.config();
@@ -23,19 +33,30 @@ const time = dayjs().format("HH:mm:ss");
 
 app.post("/participants", async (req, res) => {
 
-    const { name } = req.body;
+    const body = req.body;
 
-    if (!name || name === Number || name === "") {
-        return res.sendStatus(422); //equivalente a res.status(422).send('OK')
-    }
+    const validation = userSchema.validate(body, { abortEarly: false });
+    //validando se o body está de acordo com os requisitos passados no userSchema
+    //abortEarly false para trazer todos os erros encontrados, se fosse true parava no primeiro erro
+
+    if (validation.error) {
+        const errors = validation.error.details.map(detail => detail.message);
+        return res.status(422).send(errors);
+    };
+
+    const nameUsed = await users.findOne({ name: body.name });
+
+    if (nameUsed) {
+        return res.status(409).send("Usuario já cadastrado");
+    };
 
     const user = {
-        name,
+        name: body.name,
         lastStatus: Date.now()
     };
 
     const data = {
-        from: name,
+        from: body.name,
         to: 'Todos',
         text: 'entra na sala...',
         type: 'status',
@@ -53,35 +74,42 @@ app.post("/participants", async (req, res) => {
 });
 
 app.get("/participants", async (req, res) => {
+
     try {
         const listParticipants = await users.find().toArray();
         res.send(listParticipants);
     } catch (err) {
         res.sendStatus(500);
     }
+
 });
 
 app.post("/messages", async (req, res) => {
-    const { to, text, type } = req.body;
+
+    const body = req.body
 
     const { user } = req.headers;
+    console.log("post user", user);
 
-    const types = ("message" || "private_message");
-    const from = users.find(atualUser => atualUser.name === user);
+    const validation = messagesSchema.validate(body, { abortEarly: false });
 
-    if (!to || !text || !types || !from) {
-        return res.sendStatus(422);
-    }
+    if (validation.error) {
+        const errors = validation.error.details.map(detail => detail.message);
+        return res.status(422).send(errors);
+    };
 
-    if (!to || !text) {
+    const from = users.find({ name: user }).toArray();
+    const verifyFrom = from.length <= 0 ? true : false;
+
+    if (verifyFrom) {
         return res.sendStatus(422);
     }
 
     const saveMessage = {
         from: user,
-        to,
-        text,
-        type,
+        to: body.to,
+        text: body.text,
+        type: body.type,
         time
     }
 
@@ -98,6 +126,8 @@ app.get("/messages", async (req, res) => {
 
     const { user } = req.headers;
 
+    console.log("user", user)
+
     let limit = parseInt(req.query.limit);
     limit = (limit > 0) ? limit : 0;
 
@@ -113,7 +143,6 @@ app.get("/messages", async (req, res) => {
         };
 
         res.send(returned);
-
     } catch (err) {
         res.sendStatus(500);
     }
@@ -124,18 +153,18 @@ app.post("/status", async (req, res) => {
 
     const { user } = req.headers;
 
-    console.log("user", user);
-
     const lastStatus = { $set: { lastStatus: Date.now() } };
 
     try {
         const participator = await users.find({ name: user }).toArray();
+        console.log("participator", participator);
 
         if (participator.length === 0) {
             return res.sendStatus(404);
         }
 
-        users.updateOne({ name: user }, lastStatus);
+        users.updateOne({ name: user }, lastStatus); //atualiza um único documento dentro da coleção com base no filtro.
+
         res.sendStatus(200);
 
     } catch (err) {
